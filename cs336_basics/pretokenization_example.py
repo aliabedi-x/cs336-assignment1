@@ -259,7 +259,6 @@ class Tokenizer:
                 segment = segment.encode("utf-8")
                 tokenID = self.ids[segment]
                 final_output_ids.append(tokenID)
-                print(tokenID)
             else:
                 matches = re.finditer(PAT, segment)
                 for match in matches:
@@ -303,6 +302,85 @@ class Tokenizer:
                     final_output_ids.extend(sequence)
         return final_output_ids
 
+    def encode_iterable(self, iterable):
+        buffer = ''
+        PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        
+        for segment in iterable:
+            text = buffer + segment
+            if not text:
+                continue
+                
+            # ۱. پیدا کردن طولانی‌ترین suffix مشکوک به special token
+            max_suffix_len = 0
+            for sp in self.special_tokens:
+                # تغییر مهم: بررسی تا (طول توکن منهای یک) برای جلوگیری از حبس توکن‌های کامل
+                for i in range(min(len(text), len(sp) - 1), 0, -1):
+                    if text.endswith(sp[:i]):
+                        max_suffix_len = max(max_suffix_len, i)
+                        break
+            
+            # ۲. جدا کردن متن نسبتاً امن و پسوند مشکوک
+            if max_suffix_len > 0:
+                safe_text = text[:-max_suffix_len]
+                suspicious_suffix = text[-max_suffix_len:]
+            else:
+                safe_text = text
+                suspicious_suffix = ''
+                
+            # اگر متن امنی نداریم، همه چیز را در بافر نگه دار برای قطعه‌ی بعدی
+            if not safe_text:
+                buffer = suspicious_suffix
+                continue
+
+            # ۳. استخراج special token های *کامل* از داخل safe_text
+            parts = [safe_text]
+            for sp in self.special_tokens:
+                pattern = "(" + resplit.escape(sp) + ")"
+                new_parts = []
+                for p in parts:
+                    new_parts.extend(resplit.split(pattern, p))
+                parts = [p for p in new_parts if p]
+
+            # ۴. اعمال Regex و ساخت بافر جدید
+            # ۴. اعمال Regex و ساخت بافر جدید
+            # اختصاص مستقیم suffix مشکوک به عنوان پایه بافر جدید
+            new_buffer = suspicious_suffix 
+            
+            for i, part in enumerate(parts):
+                if part in self.special_tokens:
+                    yield from self.encode(part)
+                else:
+                    matches = list(re.finditer(PAT, part))
+                    if not matches:
+                        continue
+                        
+                    if i == len(parts) - 1:
+                        last_match = matches[-1]
+                        # ترکیب آخرین توکن متنی با پسوند مشکوک
+                        new_buffer = last_match.group() + suspicious_suffix
+                        
+                        for match in matches[:-1]:
+                            yield from self.encode(match.group())
+                    else:
+                        for match in matches:
+                            yield from self.encode(match.group())
+                            
+            # آپدیت کردن بافر برای دور بعدی حلقه
+            buffer = new_buffer
+        # ۵. در پایان کل استریم، اگر چیزی در بافر مانده (که قطعاً special token نبوده) آن را encode می‌کنیم
+        if buffer:
+            yield from self.encode(buffer)
+
+
+    def decode(self, ids):
+        sequence = []
+        for i in ids:
+            sequence.append(self.vocab[i])
+        result = b"".join(sequence)
+        result = result.decode("utf-8", errors='replace')
+        return result
+
 
 
 
@@ -325,6 +403,7 @@ if __name__ == "__main__":
             print("Decoded:", max_value.decode("utf-8", errors="replace"))
             # print(merges)
             # RSS stands for Resident Set Size 
+            # print(f"Run Success! Total Vocab: {(vocab)}.")
 
         else:
             print("Running benchmark on main dataset...")
@@ -333,10 +412,8 @@ if __name__ == "__main__":
             vocab, merges = train_bpe(path, 10000, special_tokens, max_workers=workers)
             with open(serialized_path, "wb") as fw:
                 pickle.dump([vocab, merges], fw)
-            print(f"Run Success! Total Vocab: {len(vocab)}, Total Merges: {len(merges)}")
+            print(f"Run Success! Total Vocab: {(vocab)}, Total Merges: {(merges)}")
 
-text = "hello<|endoftext|>world<|fim_prefix|>test"
-special_tokens = ["<|endoftext|>","<|fim_prefix|>"]
-my_tokenizer = Tokenizer(vocab, merges, special_tokens)
-print(my_tokenizer.encode(text=text))
-print(vocab[5655], vocab[256], vocab[119], vocab[304], vocab[340], vocab[10000], vocab[116], vocab[2203])
+
+
+
