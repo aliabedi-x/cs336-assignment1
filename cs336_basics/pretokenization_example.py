@@ -392,8 +392,8 @@ class Tokenizer:
 
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
-    path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt"
-    serialized_path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/TinyStoriesV2-GPT4-train.pkl"
+    path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/owt_valid.txt"
+    serialized_path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/owt_valid.pkl"
     if os.path.exists(path):
         if os.path.exists(serialized_path):
             print(f"Serialized data is importing...")

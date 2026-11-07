@@ -216,7 +216,7 @@ def train_bpe_optimized(dataset, vocab_size: int, special_tokens: list[str], max
 
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
-    serialized_path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/openwebtext_bpe_model2000000.pkl"
+    serialized_path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/owt_train.pkl"
 
     if os.path.exists(serialized_path):
         print("Serialized data is importing...")
@@ -226,18 +226,17 @@ if __name__ == "__main__":
         print("Token ID:", max_key)
         print("Decoded:", max_value.decode("utf-8", errors="replace"))
     else:
-        print("Loading local Parquet files...")
-        parquet_dir = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/openwebtext/plain_text"
+        print("Loading local Text file...")
+        txt_file_path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/owt_train.txt"
         
         ds = load_dataset(
-            "parquet", 
-            data_files=os.path.join(parquet_dir, "*.parquet"), 
+            "text",  # تغییر فرمت به متن
+            data_files=txt_file_path,  # مسیر مستقیم فایل txt
             split="train", 
             streaming=True
         )
         
-        # بنچمارک روی 50k
-        ds_subset = ds.take(2000000)
+        ds_subset = ds # .take(2000000)
         
         vocab, merges = train_bpe_optimized(
             dataset=ds_subset, 
