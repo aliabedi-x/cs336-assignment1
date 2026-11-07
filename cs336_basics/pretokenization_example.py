@@ -242,14 +242,16 @@ class Tokenizer:
         # I imported re as resplit
         PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         text = [text]
-        # splited_text = resplit.split(pattern, text)
-
-        for special_token in self.special_tokens:
+        sorted_special_tokens = sorted(self.special_tokens,key=len,reverse=True)
+        for special_token in sorted_special_tokens:
                 pattern = "(" + resplit.escape(special_token) + ")"
                 new_segment = []
                 for segment in text:
-                    piece = resplit.split(pattern, segment)
-                    new_segment.extend(piece)
+                    if segment in self.special_tokens:
+                        new_segment.append(segment)
+                    else: 
+                        piece = resplit.split(pattern, segment)
+                        new_segment.extend(piece)
                 text = new_segment
         
         final_output_ids = []
@@ -262,9 +264,12 @@ class Tokenizer:
             else:
                 matches = re.finditer(PAT, segment)
                 for match in matches:
+                    sequence= []
                     pre_token = match.group()
                     encoded_pre_tokens = pre_token.encode("utf-8")
-                    sequence = list(encoded_pre_tokens)
+                    for j in encoded_pre_tokens:
+                        byte_token = bytes([j])
+                        sequence.append(self.ids[byte_token])
                     while len(sequence) >= 2:
                         best_pair = None
                         best_rank = float('inf')
@@ -305,7 +310,8 @@ class Tokenizer:
     def encode_iterable(self, iterable):
         buffer = ''
         PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        
+        sorted_special_tokens = sorted(self.special_tokens,key=len,reverse=True)
+
         for segment in iterable:
             text = buffer + segment
             if not text:
@@ -313,7 +319,7 @@ class Tokenizer:
                 
             # ۱. پیدا کردن طولانی‌ترین suffix مشکوک به special token
             max_suffix_len = 0
-            for sp in self.special_tokens:
+            for sp in sorted_special_tokens:
                 # تغییر مهم: بررسی تا (طول توکن منهای یک) برای جلوگیری از حبس توکن‌های کامل
                 for i in range(min(len(text), len(sp) - 1), 0, -1):
                     if text.endswith(sp[:i]):
@@ -386,9 +392,6 @@ class Tokenizer:
 
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
-    
-    # فایل تست کوچک برای پاس شدن تست‌های سرعت
-    # اگر سایز فایل زیر 1MB باشد، اتوماتیک به صورت Serial اجرا می‌شود.
     path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/TinyStoriesV2-GPT4-train.txt"
     serialized_path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/TinyStoriesV2-GPT4-train.pkl"
     if os.path.exists(path):
@@ -401,10 +404,6 @@ if __name__ == "__main__":
             print("Bytes:", max_value)
             print("Length in bytes:", len(max_value))
             print("Decoded:", max_value.decode("utf-8", errors="replace"))
-            # print(merges)
-            # RSS stands for Resident Set Size 
-            # print(f"Run Success! Total Vocab: {(vocab)}.")
-
         else:
             print("Running benchmark on main dataset...")
             workers = 8
