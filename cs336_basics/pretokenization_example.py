@@ -7,9 +7,36 @@ import time
 import tracemalloc
 import pickle
 import re as resplit
+import numpy as np
 
+def iter_documents(path, separator="<|endoftext|>", chunk_size=1024 * 1024):
+    buffer = ""
 
-# ds = load_dataset("Skylion007/openwebtext")
+    with open(path, "r", encoding="utf-8") as f:
+        while chunk := f.read(chunk_size):
+            parts = (buffer + chunk).split(separator)
+
+            for document in parts[:-1]:
+                document.strip()
+                yield document, True
+
+            buffer = parts[-1]
+
+        if buffer.strip():
+            yield buffer, False
+
+def tokenize_to_binary(tokenizer, input_path, output_path): # later read with tokens = np.memmap("tinystories_train.bin",dtype=np.uint16,mode="r")
+    eot_id = tokenizer.ids[b"<|endoftext|>"]
+    with open(output_path, 'wb') as output_file:
+
+        for document, has_separator in iter_documents(input_path):
+            ids = tokenizer.encode(document)
+            # ids = tokenizer.encode(input_path)
+            if has_separator:
+                ids.append(eot_id)
+            converted_ids = np.asarray(ids, dtype=np.uint16)
+            converted_ids.tofile(output_file)
+
 def find_chunk_boundaries(
     file: BinaryIO,
     desired_num_chunks: int,
@@ -388,8 +415,6 @@ class Tokenizer:
         return result
 
 
-
-
 if __name__ == "__main__":
     special_tokens = ["<|endoftext|>"]
     path = "/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/owt_valid.txt"
@@ -413,6 +438,20 @@ if __name__ == "__main__":
                 pickle.dump([vocab, merges], fw)
             print(f"Run Success! Total Vocab: {(vocab)}, Total Merges: {(merges)}")
 
+tokenizer = Tokenizer(vocab, merges)
+test_text = (
+    "سلام 🌍\n"
+    "<|endoftext|>"
+    "<|endoftext|>"
+    "Hello!\n\n"
+    "<|endoftext|>"
+    "😂️️ پایان"
+)
+output_path = '/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/test.bin'
+# tokenize_to_binary(tokenizer, test_text, output_path)
 
+ids = np.fromfile(output_path, dtype=np.uint16)
 
+decoded = tokenizer.decode(ids.tolist())
 
+print("Round-trip correct:", decoded == test_text)
