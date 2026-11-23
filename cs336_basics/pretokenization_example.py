@@ -8,6 +8,9 @@ import tracemalloc
 import pickle
 import re as resplit
 import numpy as np
+import itertools
+import torch
+import math
 
 def iter_documents(path, separator="<|endoftext|>", chunk_size=1024 * 1024):
     buffer = ""
@@ -31,7 +34,6 @@ def tokenize_to_binary(tokenizer, input_path, output_path): # later read with to
 
         for document, has_separator in iter_documents(input_path):
             ids = tokenizer.encode(document)
-            # ids = tokenizer.encode(input_path)
             if has_separator:
                 ids.append(eot_id)
             converted_ids = np.asarray(ids, dtype=np.uint16)
@@ -257,6 +259,7 @@ class Tokenizer:
                 self.ids[bspecial_token] = new_id
         
         self.merge_ranks = {pair: rank for rank, pair in enumerate(merges)}
+        # self.merged_lookup = 
 
 
     @classmethod
@@ -437,21 +440,107 @@ if __name__ == "__main__":
             with open(serialized_path, "wb") as fw:
                 pickle.dump([vocab, merges], fw)
             print(f"Run Success! Total Vocab: {(vocab)}, Total Merges: {(merges)}")
+        tokenizer = Tokenizer(vocab, merges)
 
-tokenizer = Tokenizer(vocab, merges)
-test_text = (
-    "سلام 🌍\n"
-    "<|endoftext|>"
-    "<|endoftext|>"
-    "Hello!\n\n"
-    "<|endoftext|>"
-    "😂️️ پایان"
-)
-output_path = '/Users/hooshbang/Desktop/assignment1/assignment1-basics/data/test.bin'
-# tokenize_to_binary(tokenizer, test_text, output_path)
 
-ids = np.fromfile(output_path, dtype=np.uint16)
 
-decoded = tokenizer.decode(ids.tolist())
 
-print("Round-trip correct:", decoded == test_text)
+def iter_documents(path, separator="<|endoftext|>", chunk_size=1024 * 1024):
+    buffer = ""
+
+    with open(path, "r", encoding="utf-8") as f:
+        while chunk := f.read(chunk_size):
+            parts = (buffer + chunk).split(separator)
+            for document in parts[:-1]:
+                yield document, True
+
+            buffer = parts[-1]
+
+        if buffer:
+            yield buffer, False
+
+def tokenize_to_binary(tokenizer, input_path, output_path): 
+    eot_id = tokenizer.ids[b"<|endoftext|>"]
+    
+    with open(output_path, 'wb') as output_file:
+        for document, has_separator in iter_documents(input_path):
+            ids = tokenizer.encode(document)
+            
+            if has_separator:
+                ids.append(eot_id)
+                
+            converted_ids = np.asarray(ids, dtype=np.uint16)
+            converted_ids.tofile(output_file)
+
+
+
+# documents = itertools.islice(
+#     iter_documents("assignment1-basics/data/owt_train.txt"),
+#     1000
+# )
+
+# total_bytes = 0
+# total_tokens = 0
+# with open("assignment1-basics/data/owt_train.pkl", "rb") as f:
+#     vocab, merges = pickle.load(f)
+
+# tokenizer_owt = Tokenizer(vocab, merges, ["<|endoftext|>"])
+
+# start = time.perf_counter()
+
+# for document, has_separator in documents:
+#     total_bytes += len(document.encode("utf-8"))
+#     ids = tokenizer_owt.encode(document)
+#     total_tokens += len(ids)
+
+# elapsed = time.perf_counter() - start
+# print(f"Elapsed time: {elapsed}, Total bytes: {total_bytes}, Total tokens: {total_tokens}")
+# print(f"Throughput: {total_bytes / elapsed / 1e6:.3f} MB/s")
+# print(f"Tokens/sec: {total_tokens / elapsed:,.0f}")
+# print(f"Compression ratio: {total_bytes / total_tokens:.3f}")
+
+
+# start = time.perf_counter()
+
+# documents = list(itertools.islice(
+#     iter_documents("assignment1-basics/data/owt_train.txt"),
+#     1000
+# ))
+
+# read_time = time.perf_counter() - start
+
+# total_bytes = sum(
+#     len(document.encode("utf-8"))
+#     for document, _ in documents
+# )
+
+# start = time.perf_counter()
+
+# total_tokens = 0
+# for document, has_separator in documents:
+#     ids = tokenizer_owt.encode(document)
+#     total_tokens += len(ids)
+
+# encode_time = time.perf_counter() - start
+
+# print(f"Read time: {read_time:.3f} s")
+# print(f"Encode time: {encode_time:.3f} s")
+# print(f"Pure encoding throughput: {total_bytes / encode_time / 1e6:.3f} MB/s")
+
+# import cProfile
+# import pstats
+
+# profiler = cProfile.Profile()
+
+# profiler.enable()
+
+# for document, has_separator in documents[:200]:
+#     tokenizer_owt.encode(document)
+
+# profiler.disable()
+
+# stats = pstats.Stats(profiler)
+# stats.strip_dirs()
+# stats.sort_stats("cumtime")
+# stats.print_stats(20)
+
