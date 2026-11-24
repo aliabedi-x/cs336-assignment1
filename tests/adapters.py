@@ -9,7 +9,7 @@ from torch import Tensor
 from cs336_basics.pretokenization_example import train_bpe
 from cs336_basics.pretokenization_example import Tokenizer
 from cs336_basics.model import Linear, scaled_dot_product_attention, softmax, RotaryPositionalEmbedding
-from cs336_basics.model import Embedding, SwiGLU, RMSNorm, multihead_self_attention
+from cs336_basics.model import Embedding, SwiGLU, RMSNorm, multihead_self_attention, TransformerBlock, TransformerLm
 
 def run_linear(
     d_in: int,
@@ -58,8 +58,6 @@ def run_embedding(
     embedding.load_state_dict({"weight":weights})
     output = embedding(token_ids)
     return output
-
-
 
 
 def run_swiglu(
@@ -293,7 +291,19 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    model = TransformerBlock(d_model, num_heads, d_ff, max_seq_len, theta)
+    model.load_state_dict({"attn.Q.weight": weights["attn.q_proj.weight"],
+                            "attn.K.weight": weights["attn.k_proj.weight"],
+                            "attn.V.weight": weights["attn.v_proj.weight"],
+                            "attn.O.weight": weights["attn.output_proj.weight"],
+                            "rmsnorm1.weight": weights["ln1.weight"],
+                            "rmsnorm2.weight": weights["ln2.weight"],
+                            "ffswiglu.w1.weight": weights["ffn.w1.weight"],
+                            "ffswiglu.w2.weight": weights["ffn.w2.weight"],
+                            "ffswiglu.w3.weight": weights["ffn.w3.weight"],
+                            })
+    result = model(in_features)
+    return result
 
 
 def run_transformer_lm(
@@ -374,8 +384,45 @@ def run_transformer_lm(
     Returns:
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
-    """
-    raise NotImplementedError
+    """ 
+    # vocab_size, context_length, num_layers, d_model, num_heads, d_ff, theta, device=None, dtype=None):
+    model = TransformerLm(
+        vocab_size,
+        context_length,
+        num_layers,
+        d_model,
+        num_heads,
+        d_ff,
+        rope_theta,
+        device=in_indices.device,
+        dtype=weights["token_embeddings.weight"].dtype,
+    )
+
+    state_dict = {
+        "token_emb.weight": weights["token_embeddings.weight"],
+        "final_norm.weight": weights["ln_final.weight"],
+        "lm.weight": weights["lm_head.weight"],
+    }
+
+    for i in range(num_layers):
+        state_dict.update({
+            f"blocks.{i}.attn.Q.weight": weights[f"layers.{i}.attn.q_proj.weight"],
+            f"blocks.{i}.attn.K.weight": weights[f"layers.{i}.attn.k_proj.weight"],
+            f"blocks.{i}.attn.V.weight": weights[f"layers.{i}.attn.v_proj.weight"],
+            f"blocks.{i}.attn.O.weight": weights[f"layers.{i}.attn.output_proj.weight"],
+
+            f"blocks.{i}.rmsnorm1.weight": weights[f"layers.{i}.ln1.weight"],
+            f"blocks.{i}.rmsnorm2.weight": weights[f"layers.{i}.ln2.weight"],
+
+            f"blocks.{i}.ffswiglu.w1.weight": weights[f"layers.{i}.ffn.w1.weight"],
+            f"blocks.{i}.ffswiglu.w2.weight": weights[f"layers.{i}.ffn.w2.weight"],
+            f"blocks.{i}.ffswiglu.w3.weight": weights[f"layers.{i}.ffn.w3.weight"],
+        })
+
+    model.load_state_dict(state_dict)
+
+    result = model(in_indices)
+    return result
 
 
 def run_rmsnorm(
@@ -417,6 +464,7 @@ def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
     """
     raise NotImplementedError
 
+
 def run_get_batch(
     dataset: npt.NDArray, batch_size: int, context_length: int, device: str
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -455,6 +503,7 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
     """
     result = softmax(in_features, dim)
     return result
+
 
 def run_cross_entropy(
     inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
@@ -584,8 +633,6 @@ def get_tokenizer(
     # vocab, merges = run_train_bpe(input_path, vocab_size, special_tokens)
     tokenizer = Tokenizer(vocab,merges, special_tokens)
     return tokenizer
-
-
 
 
 def run_train_bpe(

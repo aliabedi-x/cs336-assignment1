@@ -249,3 +249,4 @@ if __name__ == "__main__":
             pickle.dump([vocab, merges], fw)
             
         print(f"Run Success! Total Vocab: {len(vocab)}, Total Merges: {len(merges)}")
+

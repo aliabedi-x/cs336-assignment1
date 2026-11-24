@@ -5,7 +5,7 @@ from torch import nn
 
 
 
-class Linear(nn.Module):
+class Linear(nn.Module): # in_features, out_features
     def __init__(self, in_features, out_features, device=None, dtype=None):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.empty(out_features, in_features, dtype=dtype, device=device))
@@ -17,7 +17,7 @@ class Linear(nn.Module):
 
         return Y
 
-class Embedding(nn.Module):
+class Embedding(nn.Module): # num_embeddings, embedding_dim
     def __init__(self, num_embeddings, embedding_dim, device=None, dtype=None):
         super().__init__()
         self.weight = nn.Parameter(torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype))
@@ -25,7 +25,7 @@ class Embedding(nn.Module):
     def forward(self, token_ids):
         return self.weight[token_ids]
 
-class RMSNorm(nn.Module):
+class RMSNorm(nn.Module): # d_model
     def __init__(self, d_model: int, eps: float=1e-5, device=None, dtype=None):
         super().__init__()
         self.d_model = d_model
@@ -41,7 +41,7 @@ class RMSNorm(nn.Module):
         result = normalized * self.weight.to(torch.float32)
         return result.to(in_dtype)
 
-class SwiGLU(nn.Module):
+class SwiGLU(nn.Module): # d_model, d_ff=None
     def __init__(self, d_model, d_ff=None, device=None, dtype=None):
         super().__init__()
         if d_ff is None:
@@ -61,7 +61,7 @@ class SwiGLU(nn.Module):
 
         return result
 
-class RotaryPositionalEmbedding(nn.Module):
+class RotaryPositionalEmbedding(nn.Module): # theta, d_k, max_seq_len
     def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
         super().__init__()
         assert d_k % 2 ==0
@@ -104,7 +104,7 @@ def scaled_dot_product_attention(Q: torch.Tensor, K: torch.Tensor, V: torch.Tens
 
     return output
 
-class multihead_self_attention(nn.Module):
+class multihead_self_attention(nn.Module): # d_model,num_heads,max_seq_len=None,theta=None
     def __init__(self,d_model,num_heads,max_seq_len=None,theta=None,device=None,dtype=None):
         super().__init__()
 
@@ -145,4 +145,43 @@ class multihead_self_attention(nn.Module):
         o = self.O(combined)
 
         return o
+
+class TransformerBlock(nn.Module): # d_model, num_heads, d_ff, max_seq_len, theta
+    def __init__(self, d_model: int, num_heads: int, d_ff: int, max_seq_len=None, theta=None, device=None, dtype=None):
+        super().__init__()
+        self.rmsnorm1 = RMSNorm(d_model, device=device, dtype=dtype)
+        self.rmsnorm2 = RMSNorm(d_model, device=device, dtype=dtype)
+        self.attn = multihead_self_attention(d_model, num_heads, max_seq_len, theta, device=device, dtype=dtype)
+        self.ffswiglu = SwiGLU(d_model, d_ff, device=device, dtype=dtype)
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None=None):
+        y = x + self.attn(self.rmsnorm1(x), token_positions) # attn + RMSNorm
+
+        z = y + self.ffswiglu(self.rmsnorm2(y))
+
+        return z
+
+class TransformerLm(nn.Module):
+    def __init__(self, vocab_size, context_length, num_layers, d_model, num_heads, d_ff, theta, device=None, dtype=None):
+        super().__init__()
+        # Token IDs(batch, seq_len) -> Token Embedding(batch, seq_len, d_model) -> 
+        # -> Transformer Blocks(N number) -> Final RMSNorm -> LM Head -> Vocab Logits
+        self.num_layers = num_layers
+        self.token_emb = Embedding(vocab_size, d_model, device, dtype)
+        self.blocks = nn.ModuleList()
+        for i in range(num_layers):
+            block = TransformerBlock(d_model, num_heads, d_ff, context_length, theta, device=device, dtype=dtype)
+            self.blocks.append(block)
+        self.final_norm = RMSNorm(d_model, device=device, dtype=dtype)
+        self.lm = Linear(d_model, vocab_size, device=device, dtype=dtype)
+
+    def forward(self, token_ids):
+        embedded = self.token_emb(token_ids)
+        for block in self.blocks:
+            embedded = block(embedded)
+        f_norm = self.final_norm(embedded)
+        f_lin = self.lm(f_norm)
+        return f_lin
+
+
 
