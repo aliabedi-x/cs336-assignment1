@@ -2,6 +2,9 @@ import torch
 import math
 from einops import einsum, rearrange
 from torch import nn
+from collections.abc import Callable, Iterable
+from typing import Optional
+import numpy as np
 
 
 
@@ -55,7 +58,7 @@ class SwiGLU(nn.Module): # d_model, d_ff=None
     def forward(self, x:torch.Tensor):
         z = self.w1(x)
         silu = z * torch.sigmoid(z)
-        z3 = self.w3(x)
+        z3 = self.w3(x) 
         gate = silu * z3
         result = self.w2(gate)
 
@@ -183,5 +186,162 @@ class TransformerLm(nn.Module):
         f_lin = self.lm(f_norm)
         return f_lin
 
+def cross_entropy(logits, targets):
+    vocab_size = logits.shape[-1]
+    flat_logits = logits.reshape(-1, vocab_size)
+    flat_targets = targets.reshape(-1)
+    maximum = torch.amax(flat_logits, dim=-1, keepdim=True)
+    shifted = flat_logits - maximum
+    log_sum_exp = torch.log(torch.sum(torch.exp(shifted), dim=-1))
+    row_indices = torch.arange(flat_logits.shape[0], device=logits.device)
+    target_logits = shifted[row_indices, flat_targets]
+    losses = log_sum_exp - target_logits
+    result = torch.mean(losses)
+    return result
 
+def perplexity(logits, targets): # Usually for evaluating the model
+    loss = cross_entropy(logits, targets)
+    return torch.exp(loss)
 
+# A little bit explanation: for Optimizer we inheritas from torch.optim.Optimizer, why? because we want to update Parameters and this subclass will do it for us.
+# torch.optim.Optimizer -> gives some features like: Parameter Groups, holding Optimizer State and save State Dictionary
+
+class SGD(torch.optim.Optimizer):
+    def __init__(self, params, lr=1e-3):
+        if lr<0:
+            raise ValueError(f'Invalid learning rate: {lr}')
+        defaults = {'lr': lr}
+        super().__init__(params, defaults)
+
+    def step(self, closure: Optional[Callable] = None):
+        loss = None if closure is None else closure()
+        for group in self.param_groups:
+            lr = group['lr']
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                state = self.state[p] # Get p state
+                t = state.get('t', 0) # Get iteration numb from the state, or 0
+                grad = p.grad.data
+                p.data -= lr / math.sqrt(t+1) * grad
+                state['t'] = t + 1
+        return loss
+    
+#==START==# An small test for different Learning rates. 
+lrs = [1e1, 1e2, 1e3]
+for lr in lrs:
+    weights = torch.nn.Parameter(5*torch.randn((10,10)))
+    opt = SGD([weights], lr=lr)
+
+    for t in range(10):
+        opt.zero_grad()
+        loss = (weights ** 2). mean()
+        print(loss.cpu().item())
+        loss.backward()
+        opt.step()
+    
+
+    print(f'The loss associated to learning rage={lr} is {loss}')
+#==END==# An small test for different Learning rates. 
+
+class AdamW(torch.optim.Optimizer):
+    def __init__(self, params, lr=1e-3, betas=(0.9,0.999), eps=1e-8, weight_decay=0.01):
+        if lr>=0 and betas[0]<1 and betas[0]>=0 and betas[1]<1 and betas[1]>=0 and eps>=0 and weight_decay>=0: 
+            defaults = {'lr': lr, 'betas': betas, 'eps':eps, 'weight_decay': weight_decay}
+            super().__init__(params, defaults)
+        else:
+            raise ValueError(f'Invalid hyperparameter')
+
+    def step(self, closure=None):
+        loss = None if closure is None else closure()
+
+        for group in self.param_groups:
+            lr = group["lr"]
+            beta1, beta2 = group["betas"]
+            eps = group["eps"]
+            weight_decay = group["weight_decay"]
+
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+            
+                state = self.state[p]
+                if len(state) == 0:
+                    state["t"] = 0
+                    state["m"] = torch.zeros_like(p)
+                    state["v"] = torch.zeros_like(p)
+                t = state["t"]
+                m = state["m"]
+                v = state["v"]
+
+                grad = p.grad.detach()
+                m = beta1 * m + (1-beta1)*grad
+                v = beta2 * v + (1-beta2)*(grad**2)
+
+                state["m"] = m
+                state["v"] = v
+                lrt = lr*((math.sqrt(1-(beta2**(t+1)))/(1-(beta1**(t+1)))))
+                with torch.no_grad():
+                    p.mul_(1 - lr * weight_decay)
+                    p.sub_(lrt * m / (torch.sqrt(v) + eps))
+
+                state['t'] = t + 1
+        return loss
+
+def learing_rate_schedule(t, a_max, a_min, T_w, T_c): # Here a = alpha in formula
+    if t< T_w:
+        alpha = (t/T_w)*a_max
+    elif T_w<= t <= T_c:
+        alpha = a_min + 0.5*(1+math.cos(((t-T_w)/(T_c-T_w))*math.pi))*(a_max-a_min)
+    else: 
+        alpha = a_min
+    
+    return alpha
+
+def gradient_clipping(parameters, maximum_norm, eps=1e-6):
+    parameters = list(parameters)
+    total_squared_norm = 0
+    for p in parameters:
+        if p.grad is None:
+            continue
+        squared_sum = torch.sum(torch.square(p.grad))
+        total_squared_norm += squared_sum
+    global_norm = math.sqrt(total_squared_norm)
+    if global_norm > maximum_norm:
+        c = maximum_norm/(global_norm+eps)
+        with torch.no_grad():
+            for p in parameters:
+                if p.grad is None:
+                    continue
+                p.grad.mul_(c)
+
+def data_loading(x, batch_size, context_length, device=None):
+    N = len(x)
+    start_index = np.random.randint(0, N-context_length, batch_size)
+    input_sequence = []
+    target_sequence  = []
+    for index in start_index:
+        input_sequence.append(x[ index : index+context_length ])
+        target_sequence.append(x[ index+1 : index+context_length+1 ])
+    data_input = np.stack(input_sequence, axis=0)
+    data_target = np.stack(target_sequence, axis=0)
+    result_input = torch.tensor(data_input, dtype=torch.long, device=device)
+    result_target = torch.tensor(data_target, dtype=torch.long, device=device)
+    return (result_input,result_target)
+
+def save_checkpoint(model, optimizer, iteration, out):
+    model_data = model.state_dict()
+    opt_data = optimizer.state_dict()
+    data = {"model_data": model_data, "opt_data": opt_data, "iteration":iteration}
+    torch.save(data,out)
+
+def load_checkpoint(src, model, optimizer):
+    data = torch.load(src, map_location=None)
+    model.load_state_dict(data["model_data"])
+    optimizer.load_state_dict(data["opt_data"])
+    return data["iteration"]
+
+def SiLU(x: torch.Tensor) -> torch.Tensor:
+    silu = x * torch.sigmoid(x)
+    return silu
