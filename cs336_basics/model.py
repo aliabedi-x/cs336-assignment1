@@ -228,22 +228,23 @@ class SGD(torch.optim.Optimizer):
                 state['t'] = t + 1
         return loss
     
-#==START==# An small test for different Learning rates. 
-lrs = [1e1, 1e2, 1e3]
-for lr in lrs:
-    weights = torch.nn.Parameter(5*torch.randn((10,10)))
-    opt = SGD([weights], lr=lr)
+def main():
+    #==START==# An small test for different Learning rates. 
+    lrs = [1e1, 1e2, 1e3]
+    for lr in lrs:
+        weights = torch.nn.Parameter(5*torch.randn((10,10)))
+        opt = SGD([weights], lr=lr)
 
-    for t in range(10):
-        opt.zero_grad()
-        loss = (weights ** 2). mean()
-        print(loss.cpu().item())
-        loss.backward()
-        opt.step()
-    
+        for t in range(10):
+            opt.zero_grad()
+            loss = (weights ** 2). mean()
+            print(loss.cpu().item())
+            loss.backward()
+            opt.step()
+        
 
-    print(f'The loss associated to learning rage={lr} is {loss}')
-#==END==# An small test for different Learning rates. 
+        print(f'The loss associated to learning rage={lr} is {loss}')
+    #==END==# An small test for different Learning rates. 
 
 class AdamW(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9,0.999), eps=1e-8, weight_decay=0.01):
@@ -345,3 +346,6 @@ def load_checkpoint(src, model, optimizer):
 def SiLU(x: torch.Tensor) -> torch.Tensor:
     silu = x * torch.sigmoid(x)
     return silu
+
+if __name__ == '__main__':
+    main()

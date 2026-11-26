@@ -60,7 +60,7 @@ context_length = 1024
 num_layers = 12
 d = 768
 num_heads = 12
-dff = 4288
+dff = 2048
 batch_size = 1
 T = context_length
 attention_params = 4 * (d ** 2)
@@ -95,7 +95,7 @@ context_length = 1024
 num_layers = 24
 d = 1024
 num_heads = 16
-dff = 4288
+dff = 2752
 batch_size = 1
 T = context_length
 
@@ -126,7 +126,7 @@ context_length = 1024
 num_layers = 36
 d = 1280
 num_heads = 20
-dff = 4288
+dff = 3392
 batch_size = 1
 T = context_length
 
