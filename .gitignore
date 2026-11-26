@@ -174,3 +174,6 @@ data/
 
 # VS Code
 .vscode/checkpoints/
+
+/checkpoints/
+/.vscode/
